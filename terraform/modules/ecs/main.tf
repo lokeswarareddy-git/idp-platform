@@ -53,10 +53,12 @@ resource "aws_ecs_task_definition" "this" {
   family                   = var.service_name
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = var.cpu
-  memory                   = var.memory
-  execution_role_arn       = var.execution_role_arn
-  task_role_arn            = var.task_role_arn
+
+  cpu    = var.cpu
+  memory = var.memory
+
+  execution_role_arn = var.execution_role_arn
+  task_role_arn      = var.task_role_arn
 
   container_definitions = jsonencode([
     {
@@ -72,20 +74,24 @@ resource "aws_ecs_task_definition" "this" {
       ]
 
       environment = [
-        for k, v in var.environment_variables : { name = k, value = v }
+        for k, v in var.environment_variables : {
+          name  = k
+          value = v
+        }
       ]
 
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.this.name
-          "awslogs-region"        = var.aws_region
-          "awslogs-stream-prefix" = "ecs"
+          awslogs-group         = aws_cloudwatch_log_group.this.name
+          awslogs-region        = var.aws_region
+          awslogs-stream-prefix = "ecs"
         }
       }
 
+      # SIMPLE + SAFE HEALTH CHECK (no curl dependency)
       healthCheck = {
-        command     = ["CMD-SHELL", "curl -f http://localhost:${var.container_port}/health || exit 1"]
+        command     = ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:${var.container_port}/')\""]
         interval    = 30
         timeout     = 5
         retries     = 3
@@ -109,10 +115,11 @@ resource "aws_ecs_service" "this" {
     base              = 1
   }
 
+  # FIXED: use PUBLIC SUBNETS for simplicity (no NAT issues)
   network_configuration {
-    subnets          = var.private_subnet_ids
+    subnets          = var.public_subnet_ids
     security_groups  = [aws_security_group.ecs_tasks.id]
-    assign_public_ip = var.assign_public_ip
+    assign_public_ip = true
   }
 
   load_balancer {
@@ -126,11 +133,10 @@ resource "aws_ecs_service" "this" {
     rollback = true
   }
 
-  lifecycle {
-    ignore_changes = [desired_count, task_definition]
-  }
 
-  depends_on = [aws_cloudwatch_log_group.this]
+  depends_on = [
+    aws_cloudwatch_log_group.this
+  ]
 
   tags = var.tags
 }

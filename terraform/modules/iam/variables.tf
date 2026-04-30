@@ -6,6 +6,7 @@ variable "service_name" {
 variable "dynamodb_table_arns" {
   description = "DynamoDB table ARNs the task role is granted access to"
   type        = list(string)
+  default     = []
 }
 
 variable "tags" {

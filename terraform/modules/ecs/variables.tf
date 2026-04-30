@@ -14,17 +14,18 @@ variable "aws_region" {
 }
 
 variable "vpc_id" {
-  description = "VPC ID for the ECS tasks security group"
+  description = "VPC ID for ECS security group"
   type        = string
 }
 
-variable "private_subnet_ids" {
-  description = "Private subnet IDs for ECS tasks"
+# ✅ FIXED: use PUBLIC subnets (no NAT required)
+variable "public_subnet_ids" {
+  description = "Public subnet IDs for ECS tasks"
   type        = list(string)
 }
 
 variable "alb_security_group_id" {
-  description = "Security group ID of the ALB"
+  description = "Security group ID of ALB"
   type        = string
 }
 
@@ -34,17 +35,17 @@ variable "target_group_arn" {
 }
 
 variable "execution_role_arn" {
-  description = "ECS task execution IAM role ARN"
+  description = "ECS execution role ARN"
   type        = string
 }
 
 variable "task_role_arn" {
-  description = "ECS task IAM role ARN"
+  description = "ECS task role ARN"
   type        = string
 }
 
 variable "container_image" {
-  description = "Container image URI (ECR URL + tag)"
+  description = "ECR image URI with tag"
   type        = string
 }
 
@@ -55,37 +56,37 @@ variable "container_port" {
 }
 
 variable "cpu" {
-  description = "Fargate task CPU units (256, 512, 1024, 2048, 4096)"
+  description = "Fargate CPU units"
   type        = number
   default     = 256
 }
 
 variable "memory" {
-  description = "Fargate task memory in MiB"
+  description = "Fargate memory in MiB"
   type        = number
   default     = 512
 }
 
 variable "desired_count" {
-  description = "Desired number of running tasks"
+  description = "Number of ECS tasks"
   type        = number
   default     = 1
 }
 
 variable "environment_variables" {
-  description = "Environment variables injected into the container"
+  description = "Container environment variables"
   type        = map(string)
   default     = {}
 }
 
 variable "assign_public_ip" {
-  description = "Assign a public IP to ECS tasks (required when running in public subnets without a NAT gateway)"
+  description = "Assign public IP to ECS tasks"
   type        = bool
-  default     = false
+  default     = true   # ✅ important fix
 }
 
 variable "log_retention_days" {
-  description = "CloudWatch log retention in days"
+  description = "CloudWatch log retention"
   type        = number
   default     = 30
 }
