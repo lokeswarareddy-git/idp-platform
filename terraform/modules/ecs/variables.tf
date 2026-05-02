@@ -82,7 +82,7 @@ variable "environment_variables" {
 variable "assign_public_ip" {
   description = "Assign public IP to ECS tasks"
   type        = bool
-  default     = true   # ✅ important fix
+  default     = true # ✅ important fix
 }
 
 variable "log_retention_days" {

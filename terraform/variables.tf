@@ -79,3 +79,16 @@ variable "alarm_email" {
   type        = string
   default     = ""
 }
+
+# ── CI/CD ──────────────────────────────────────────────────────────────────────
+
+variable "github_org" {
+  description = "GitHub organisation or username that owns the repo"
+  type        = string
+}
+
+variable "github_repo" {
+  description = "GitHub repository name (e.g. idp-platform)"
+  type        = string
+  default     = "idp-platform"
+}

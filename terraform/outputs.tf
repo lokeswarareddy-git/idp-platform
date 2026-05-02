@@ -37,3 +37,8 @@ output "sns_alarm_topic_arn" {
   description = "SNS topic ARN for alarm notifications"
   value       = module.cloudwatch.sns_topic_arn
 }
+
+output "github_actions_role_arn" {
+  description = "IAM role ARN — add this as AWS_DEPLOY_ROLE_ARN in GitHub repository secrets"
+  value       = module.github_oidc.role_arn
+}

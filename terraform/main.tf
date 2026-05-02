@@ -57,27 +57,27 @@ module "alb" {
 
 # ── ECS Fargate ────────────────────────────────────────────────────────────────
 module "ecs" {
-  source                = "./modules/ecs"
-  cluster_name          = local.name
-  service_name          = "idp-platform"
-  aws_region            = var.aws_region
-  vpc_id                = var.vpc_id
+  source       = "./modules/ecs"
+  cluster_name = local.name
+  service_name = "idp-platform"
+  aws_region   = var.aws_region
+  vpc_id       = var.vpc_id
 
   # ✅ FIXED: use public subnets
-  public_subnet_ids     = var.public_subnets
+  public_subnet_ids = var.public_subnets
 
   alb_security_group_id = module.alb.security_group_id
   target_group_arn      = module.alb.target_group_arn
   execution_role_arn    = module.iam.execution_role_arn
   task_role_arn         = module.iam.task_role_arn
 
-  container_image       = "${module.ecr.repository_url}:v11"
-  container_port        = 8000
-  cpu                   = var.ecs_cpu
-  memory                = var.ecs_memory
-  desired_count         = var.ecs_desired_count
+  container_image = "${module.ecr.repository_url}:latest"
+  container_port  = 8000
+  cpu             = var.ecs_cpu
+  memory          = var.ecs_memory
+  desired_count   = var.ecs_desired_count
 
-  assign_public_ip      = var.assign_public_ip
+  assign_public_ip = var.assign_public_ip
 
   environment_variables = {
     ENVIRONMENT = var.environment
@@ -87,21 +87,35 @@ module "ecs" {
   tags = local.tags
 }
 
+# ── GitHub Actions OIDC ───────────────────────────────────────────────────────
+module "github_oidc" {
+  source = "./modules/github_oidc"
+
+  github_org  = var.github_org
+  github_repo = var.github_repo
+
+  ecr_repository_arns = [module.ecr.repository_arn]
+  ecs_service_arns    = [module.ecs.service_arn]
+  iam_role_arns       = [module.iam.execution_role_arn, module.iam.task_role_arn]
+
+  tags = local.tags
+}
+
 # ── CloudWatch ────────────────────────────────────────────────────────────────
 module "cloudwatch" {
-  source                  = "./modules/cloudwatch"
+  source = "./modules/cloudwatch"
 
-  service_name            = module.ecs.service_name
-  cluster_name            = module.ecs.cluster_name
-  aws_region              = var.aws_region
-  log_group_name          = module.ecs.log_group_name
+  service_name   = module.ecs.service_name
+  cluster_name   = module.ecs.cluster_name
+  aws_region     = var.aws_region
+  log_group_name = module.ecs.log_group_name
 
   alb_arn_suffix          = module.alb.alb_arn_suffix
   target_group_arn_suffix = module.alb.target_group_arn_suffix
 
-  alarm_email             = var.alarm_email
+  alarm_email = var.alarm_email
 
-  enable_alb_alarms         = true
+  enable_alb_alarms          = true
   enable_target_group_alarms = true
 
   tags = local.tags

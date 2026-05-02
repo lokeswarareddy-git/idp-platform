@@ -1,0 +1,153 @@
+name: CI/CD — Build & Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (defaults to commit SHA)"
+        required: false
+
+permissions:
+  id-token: write   # required for OIDC
+  contents: read
+
+env:
+  AWS_REGION: us-east-2
+  ECR_REPOSITORY: idp-platform
+  ECS_CLUSTER: idp-platform-dev
+  ECS_SERVICE: idp-platform
+  CONTAINER_NAME: idp-platform
+
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+
+  # ── 1. Test ─────────────────────────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run tests
+        run: pytest --tb=short -q
+
+  # ── 2. Build & Deploy ────────────────────────────────────────────────────────
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    needs: test
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Configure AWS credentials via OIDC — no long-lived secrets stored
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Capture current task definition BEFORE deploying (needed for rollback)
+      - name: Get current task definition
+        id: prev
+        run: |
+          PREV=$(aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.ECS_SERVICE }} \
+            --query 'services[0].taskDefinition' \
+            --output text)
+          echo "task_def=$PREV" >> $GITHUB_OUTPUT
+          echo "Previous task definition: $PREV"
+
+      # Resolve image tag: manual input > commit SHA
+      - name: Resolve image tag
+        id: meta
+        run: |
+          TAG=${{ github.event.inputs.image_tag || github.sha }}
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Deploying image tag: $TAG"
+
+      # Build for linux/amd64 with --provenance=false to produce a plain
+      # single-arch manifest that ECS Fargate can pull correctly
+      - name: Build and push image to ECR
+        id: build
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false \
+            --tag $REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG \
+            --push \
+            .
+          echo "image=$REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      # Download current task definition, swap container image, write new file
+      - name: Download task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.CONTAINER_NAME }} \
+            --query taskDefinition \
+            > task-def.json
+
+      - name: Render new task definition
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-def.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build.outputs.image }}
+
+      # Register new task definition revision and update the ECS service.
+      # Waits up to 10 minutes for stability; fails if circuit breaker fires.
+      - name: Deploy to ECS (rolling update)
+        id: deploy
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      # If ECS circuit breaker fires the deploy action fails → roll back explicitly
+      - name: Rollback on failure
+        if: failure() && steps.deploy.conclusion == 'failure'
+        run: |
+          echo "⚠️ Deployment failed — rolling back to ${{ steps.prev.outputs.task_def }}"
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --task-definition ${{ steps.prev.outputs.task_def }} \
+            --force-new-deployment
+          echo "✅ Rollback initiated"
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          echo "## Deployment $STATUS" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Image** | \`${{ steps.build.outputs.image }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Cluster** | \`${{ env.ECS_CLUSTER }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Service** | \`${{ env.ECS_SERVICE }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Triggered by** | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
