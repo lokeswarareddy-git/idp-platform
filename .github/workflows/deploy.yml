@@ -12,7 +12,7 @@ on:
         required: false
 
 permissions:
-  id-token: write   # required for OIDC
+  id-token: write
   contents: read
 
 env:
@@ -22,10 +22,9 @@ env:
   ECS_SERVICE: idp-platform
   CONTAINER_NAME: idp-platform
 
-# ─────────────────────────────────────────────────────────────────────────────
 jobs:
 
-  # ── 1. Test ─────────────────────────────────────────────────────────────────
+  # ── 1. TEST (CI) ────────────────────────────────────────────────────────────
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -44,17 +43,20 @@ jobs:
       - name: Run tests
         run: pytest --tb=short -q
 
-  # ── 2. Build & Deploy ────────────────────────────────────────────────────────
+  # ── 2. DEPLOY (CD — ONLY MAIN) ──────────────────────────────────────────────
   deploy:
     name: Build & Deploy
     runs-on: ubuntu-latest
     needs: test
     environment: production
-  if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    # 🚨 CRITICAL FIX — prevents deploy during PR
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
     steps:
       - uses: actions/checkout@v4
 
-      # Configure AWS credentials via OIDC — no long-lived secrets stored
+      # Configure AWS credentials via OIDC
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -65,7 +67,7 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Capture current task definition BEFORE deploying (needed for rollback)
+      # Capture current task definition BEFORE deploying (for rollback)
       - name: Get current task definition
         id: prev
         run: |
@@ -75,9 +77,8 @@ jobs:
             --query 'services[0].taskDefinition' \
             --output text)
           echo "task_def=$PREV" >> $GITHUB_OUTPUT
-          echo "Previous task definition: $PREV"
 
-      # Resolve image tag: manual input > commit SHA
+      # Resolve image tag
       - name: Resolve image tag
         id: meta
         run: |
@@ -85,8 +86,7 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Deploying image tag: $TAG"
 
-      # Build for linux/amd64 with --provenance=false to produce a plain
-      # single-arch manifest that ECS Fargate can pull correctly
+      # Build & push image to ECR
       - name: Build and push image to ECR
         id: build
         env:
@@ -101,7 +101,7 @@ jobs:
             .
           echo "image=$REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
-      # Download current task definition, swap container image, write new file
+      # Download current task definition
       - name: Download task definition
         run: |
           aws ecs describe-task-definition \
@@ -109,6 +109,7 @@ jobs:
             --query taskDefinition \
             > task-def.json
 
+      # Render new task definition
       - name: Render new task definition
         id: render
         uses: aws-actions/amazon-ecs-render-task-definition@v1
@@ -117,8 +118,7 @@ jobs:
           container-name: ${{ env.CONTAINER_NAME }}
           image: ${{ steps.build.outputs.image }}
 
-      # Register new task definition revision and update the ECS service.
-      # Waits up to 10 minutes for stability; fails if circuit breaker fires.
+      # Deploy to ECS
       - name: Deploy to ECS (rolling update)
         id: deploy
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
@@ -128,7 +128,7 @@ jobs:
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
 
-      # If ECS circuit breaker fires the deploy action fails → roll back explicitly
+      # Rollback if deployment fails
       - name: Rollback on failure
         if: failure() && steps.deploy.conclusion == 'failure'
         run: |
@@ -138,8 +138,8 @@ jobs:
             --service ${{ env.ECS_SERVICE }} \
             --task-definition ${{ steps.prev.outputs.task_def }} \
             --force-new-deployment
-          echo "✅ Rollback initiated"
 
+      # Summary
       - name: Deployment summary
         if: always()
         run: |
