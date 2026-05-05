@@ -12,7 +12,7 @@
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
         },
         "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:lokeswarareddy/idp-platform:*"
+          "token.actions.githubusercontent.com:sub": "repo:lokeswarareddy-git/idp-platform:*"
         }
       }
     }
