@@ -58,6 +58,7 @@ class ProvisionResponse(BaseModel):
     owner_team: str
     status: ProvisionStatus
     requested_at: datetime
+    resource_arn: str | None = None
     message: str
 
 
