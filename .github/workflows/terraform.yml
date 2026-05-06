@@ -35,7 +35,12 @@ jobs:
         uses: hashicorp/setup-terraform@v3
 
       - name: Terraform Init
-        run: terraform init
+        run: |
+          terraform init -reconfigure \
+            -backend-config="bucket=idp-platform-terraform-state" \
+            -backend-config="key=dev/terraform.tfstate" \
+            -backend-config="region=us-east-2" \
+            -backend-config="dynamodb_table=idp-platform-terraform-locks"
 
       - name: Terraform Validate
         run: terraform validate
