@@ -58,6 +58,13 @@ resource "aws_iam_role_policy_attachment" "task_dynamodb" {
 
 data "aws_iam_policy_document" "task_provisioning" {
   statement {
+    sid       = "STSIdentity"
+    effect    = "Allow"
+    actions   = ["sts:GetCallerIdentity"]
+    resources = ["*"]
+  }
+
+  statement {
     sid    = "S3Provisioning"
     effect = "Allow"
     actions = [

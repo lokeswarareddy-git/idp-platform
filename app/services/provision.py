@@ -22,10 +22,16 @@ log = structlog.get_logger(__name__)
 _SYSTEM_TAGS = {"managed_by": "idp-platform"}
 
 
+def _account_id() -> str:
+    return boto3.client("sts", region_name=settings.aws_region).get_caller_identity()["Account"]
+
+
 class ProvisionService:
     async def provision(self, request: ProvisionRequest) -> ProvisionResponse:
         request_id = str(uuid.uuid4())
-        resource_name = f"{request.environment}-{request.name}"
+        account_id = await asyncio.to_thread(_account_id)
+        # Prefix account ID so S3 bucket names are globally unique
+        resource_name = f"{account_id}-{request.environment}-{request.name}"
         tags = {
             **request.tags,
             **_SYSTEM_TAGS,
@@ -40,31 +46,14 @@ class ProvisionService:
             name=resource_name,
         )
 
-        try:
-            if isinstance(request.config, S3Config):
-                resource_arn = await asyncio.to_thread(
-                    _provision_s3, resource_name, request.config, tags
-                )
-            else:
-                resource_arn = await asyncio.to_thread(
-                    _provision_dynamodb, resource_name, request.config, tags
-                )
-
-            status = ProvisionStatus.COMPLETED
-            message = f"{request.config.resource_type.upper()} '{resource_name}' provisioned."
-
-        except ResourceAlreadyExistsError:
-            if isinstance(request.config, S3Config):
-                # ✅ S3 → idempotent
-                resource_arn = f"existing:{resource_name}"
-                status = ProvisionStatus.COMPLETED
-                message = f"S3 '{resource_name}' already exists (idempotent)."
-            else:
-                # ❌ DynamoDB → conflict
-                raise HTTPException(
-                    status_code=http_status.HTTP_409_CONFLICT,
-                    detail=f"DynamoDB '{resource_name}' already exists",
-                )
+        if isinstance(request.config, S3Config):
+            resource_arn = await asyncio.to_thread(
+                _provision_s3, resource_name, request.config, tags
+            )
+        else:
+            resource_arn = await asyncio.to_thread(
+                _provision_dynamodb, resource_name, request.config, tags
+            )
 
         log.info("provision.completed", request_id=request_id, resource_arn=resource_arn)
 
@@ -74,11 +63,12 @@ class ProvisionService:
             resource_type=request.config.resource_type,
             environment=request.environment,
             owner_team=request.owner_team,
-            status=status,
+            status=ProvisionStatus.COMPLETED,
             requested_at=datetime.now(UTC),
             resource_arn=resource_arn,
-            message=message,
+            message=f"{request.config.resource_type.upper()} '{resource_name}' provisioned.",
         )
+
 
 def _provision_s3(bucket_name: str, config: S3Config, tags: dict[str, str]) -> str:
     client = boto3.client("s3", region_name=settings.aws_region)
@@ -91,7 +81,11 @@ def _provision_s3(bucket_name: str, config: S3Config, tags: dict[str, str]) -> s
         client.create_bucket(**kwargs)
     except ClientError as e:
         code = e.response["Error"]["Code"]
-        if code in ("BucketAlreadyExists", "BucketAlreadyOwnedByYou"):
+        if code == "BucketAlreadyOwnedByYou":
+            # You already own this bucket — idempotent, return its ARN
+            return f"arn:aws:s3:::{bucket_name}"
+        if code == "BucketAlreadyExists":
+            # Name taken by another account — should not happen with account-prefixed names
             raise ResourceAlreadyExistsError("s3", bucket_name) from e
         raise
 
