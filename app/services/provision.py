@@ -39,14 +39,24 @@ class ProvisionService:
             name=resource_name,
         )
 
-        if isinstance(request.config, S3Config):
-            resource_arn = await asyncio.to_thread(
-                _provision_s3, resource_name, request.config, tags
-            )
-        else:
-            resource_arn = await asyncio.to_thread(
-                _provision_dynamodb, resource_name, request.config, tags
-            )
+        try:
+            if isinstance(request.config, S3Config):
+                resource_arn = await asyncio.to_thread(
+                    _provision_s3, resource_name, request.config, tags
+                )
+            else:
+                resource_arn = await asyncio.to_thread(
+                    _provision_dynamodb, resource_name, request.config, tags
+                )
+
+            status = ProvisionStatus.COMPLETED
+            message = f"{request.config.resource_type.upper()} '{resource_name}' provisioned."
+
+        except ResourceAlreadyExistsError:
+            # 🔥 IDEMPOTENT FIX
+            resource_arn = f"existing:{resource_name}"
+            status = ProvisionStatus.COMPLETED
+            message = f"{request.config.resource_type.upper()} '{resource_name}' already exists (idempotent)."
 
         log.info("provision.completed", request_id=request_id, resource_arn=resource_arn)
 
@@ -56,12 +66,11 @@ class ProvisionService:
             resource_type=request.config.resource_type,
             environment=request.environment,
             owner_team=request.owner_team,
-            status=ProvisionStatus.COMPLETED,
+            status=status,
             requested_at=datetime.now(UTC),
             resource_arn=resource_arn,
-            message=f"{request.config.resource_type.upper()} '{resource_name}' provisioned.",
+            message=message,
         )
-
 
 def _provision_s3(bucket_name: str, config: S3Config, tags: dict[str, str]) -> str:
     client = boto3.client("s3", region_name=settings.aws_region)
