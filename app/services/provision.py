@@ -8,7 +8,7 @@ from botocore.exceptions import ClientError
 from fastapi import HTTPException, status as http_status
 
 from app.core.config import settings
-from app.core.exceptions import ResourceAlreadyExistsError
+from app.core.exceptions import InsufficientPermissionsError, ResourceAlreadyExistsError
 from app.models.provision import (
     DynamoDBConfig,
     ProvisionRequest,
@@ -46,14 +46,21 @@ class ProvisionService:
             name=resource_name,
         )
 
-        if isinstance(request.config, S3Config):
-            resource_arn = await asyncio.to_thread(
-                _provision_s3, resource_name, request.config, tags
-            )
-        else:
-            resource_arn = await asyncio.to_thread(
-                _provision_dynamodb, resource_name, request.config, tags
-            )
+        try:
+            if isinstance(request.config, S3Config):
+                resource_arn = await asyncio.to_thread(
+                    _provision_s3, resource_name, request.config, tags
+                )
+            else:
+                resource_arn = await asyncio.to_thread(
+                    _provision_dynamodb, resource_name, request.config, tags
+                )
+        except ClientError as e:
+            if e.response["Error"]["Code"] in ("AccessDenied", "AccessDeniedException"):
+                action = e.response["Error"].get("Message", "unknown AWS action")
+                log.warning("provision.access_denied", request_id=request_id, detail=action)
+                raise InsufficientPermissionsError(action) from e
+            raise
 
         log.info("provision.completed", request_id=request_id, resource_arn=resource_arn)
 
