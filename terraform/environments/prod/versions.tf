@@ -8,12 +8,11 @@ terraform {
     }
   }
 
-  # Uncomment after creating the S3 bucket and DynamoDB lock table
-  # backend "s3" {
-  #   bucket         = "idp-platform-terraform-state"
-  #   key            = "prod/terraform.tfstate"
-  #   region         = "us-east-2"
-  #   dynamodb_table = "idp-platform-terraform-locks"
-  #   encrypt        = true
-  # }
+  backend "s3" {
+    bucket         = "idp-platform-terraform-state"
+    key            = "prod/terraform.tfstate"
+    region         = "us-east-2"
+    dynamodb_table = "idp-platform-terraform-locks"
+    encrypt        = true
+  }
 }

@@ -1,4 +1,4 @@
-name: Terraform CI/CD
+name: Terraform — Dev
 
 on:
   push:
@@ -16,6 +16,7 @@ env:
 
 jobs:
   terraform:
+    name: Terraform
     runs-on: ubuntu-latest
 
     defaults:
@@ -36,7 +37,7 @@ jobs:
 
       - name: Terraform Init
         run: |
-          terraform init -reconfigure \
+          terraform init \
             -backend-config="bucket=idp-platform-terraform-state" \
             -backend-config="key=dev/terraform.tfstate" \
             -backend-config="region=us-east-2" \
@@ -46,8 +47,8 @@ jobs:
         run: terraform validate
 
       - name: Terraform Plan
-        run: terraform plan
+        run: terraform plan -out=tfplan
 
       - name: Terraform Apply
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: terraform apply -auto-approve
+        run: terraform apply -auto-approve tfplan
