@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import boto3
 import structlog
 from botocore.exceptions import ClientError
+from fastapi import HTTPException, status as http_status
 
 from app.core.config import settings
 from app.core.exceptions import ResourceAlreadyExistsError
@@ -53,10 +54,17 @@ class ProvisionService:
             message = f"{request.config.resource_type.upper()} '{resource_name}' provisioned."
 
         except ResourceAlreadyExistsError:
-            # 🔥 IDEMPOTENT FIX
-            resource_arn = f"existing:{resource_name}"
-            status = ProvisionStatus.COMPLETED
-            message = f"{request.config.resource_type.upper()} '{resource_name}' already exists (idempotent)."
+            if isinstance(request.config, S3Config):
+                # ✅ S3 → idempotent
+                resource_arn = f"existing:{resource_name}"
+                status = ProvisionStatus.COMPLETED
+                message = f"S3 '{resource_name}' already exists (idempotent)."
+            else:
+                # ❌ DynamoDB → conflict
+                raise HTTPException(
+                    status_code=http_status.HTTP_409_CONFLICT,
+                    detail=f"DynamoDB '{resource_name}' already exists",
+                )
 
         log.info("provision.completed", request_id=request_id, resource_arn=resource_arn)
 
