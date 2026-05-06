@@ -55,3 +55,39 @@ resource "aws_iam_role_policy_attachment" "task_dynamodb" {
   role       = aws_iam_role.task.name
   policy_arn = aws_iam_policy.task_dynamodb.arn
 }
+
+data "aws_iam_policy_document" "task_provisioning" {
+  statement {
+    sid    = "S3Provisioning"
+    effect = "Allow"
+    actions = [
+      "s3:CreateBucket",
+      "s3:PutBucketVersioning",
+      "s3:PutBucketTagging",
+      "s3:PutPublicAccessBlock",
+    ]
+    resources = ["arn:aws:s3:::*"]
+  }
+
+  statement {
+    sid    = "DynamoDBProvisioning"
+    effect = "Allow"
+    actions = [
+      "dynamodb:CreateTable",
+      "dynamodb:TagResource",
+      "dynamodb:DescribeTable",
+    ]
+    resources = ["arn:aws:dynamodb:*:*:table/*"]
+  }
+}
+
+resource "aws_iam_policy" "task_provisioning" {
+  name   = "${var.service_name}-provisioning"
+  policy = data.aws_iam_policy_document.task_provisioning.json
+  tags   = var.tags
+}
+
+resource "aws_iam_role_policy_attachment" "task_provisioning" {
+  role       = aws_iam_role.task.name
+  policy_arn = aws_iam_policy.task_provisioning.arn
+}
