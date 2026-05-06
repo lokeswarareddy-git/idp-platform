@@ -82,6 +82,7 @@ module "ecs" {
   environment_variables = {
     ENVIRONMENT = var.environment
     JSON_LOGS   = "true"
+    AWS_REGION  = var.aws_region
   }
 
   tags = local.tags

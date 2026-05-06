@@ -51,7 +51,7 @@ module "ecs" {
   service_name          = "idp-platform"
   aws_region            = var.aws_region
   vpc_id                = var.vpc_id
-  private_subnet_ids    = var.private_subnet_ids
+  public_subnet_ids     = var.public_subnet_ids
   alb_security_group_id = module.alb.security_group_id
   target_group_arn      = module.alb.target_group_arn
   execution_role_arn    = module.iam.execution_role_arn

@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     environment: Literal["dev", "staging", "prod"] = "dev"
     log_level: str = "INFO"
     json_logs: bool = True
-    aws_region: str = "us-east-1"
+    aws_region: str = "us-east-2"
 
     @property
     def docs_enabled(self) -> bool:

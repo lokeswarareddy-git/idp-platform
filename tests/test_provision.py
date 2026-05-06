@@ -33,28 +33,41 @@ class TestProvision:
         },
     }
 
-    async def test_s3_provision_accepted(self, client: AsyncClient) -> None:
+    async def test_s3_provision_created(self, client: AsyncClient) -> None:
         response = await client.post("/api/v1/provision", json=self.S3_PAYLOAD)
-        assert response.status_code == 202
+        assert response.status_code == 201
         data = response.json()
         assert data["resource_type"] == "s3"
-        assert data["status"] == "accepted"
+        assert data["status"] == "completed"
         assert data["name"] == "my-data-bucket"
         assert data["environment"] == "dev"
         assert data["owner_team"] == "platform-team"
+        assert data["resource_arn"] == "arn:aws:s3:::dev-my-data-bucket"
         assert "request_id" in data
         assert "requested_at" in data
 
-    async def test_dynamodb_provision_accepted(self, client: AsyncClient) -> None:
+    async def test_dynamodb_provision_created(self, client: AsyncClient) -> None:
         response = await client.post("/api/v1/provision", json=self.DYNAMO_PAYLOAD)
-        assert response.status_code == 202
+        assert response.status_code == 201
         data = response.json()
         assert data["resource_type"] == "dynamodb"
-        assert data["status"] == "accepted"
+        assert data["status"] == "completed"
+        assert data["resource_arn"].startswith("arn:aws:dynamodb:")
+
+    async def test_s3_duplicate_is_idempotent(self, client: AsyncClient) -> None:
+        # S3 create_bucket is idempotent for the same owner+region; both calls succeed
+        await client.post("/api/v1/provision", json=self.S3_PAYLOAD)
+        response = await client.post("/api/v1/provision", json=self.S3_PAYLOAD)
+        assert response.status_code == 201
+
+    async def test_dynamodb_duplicate_returns_409(self, client: AsyncClient) -> None:
+        await client.post("/api/v1/provision", json=self.DYNAMO_PAYLOAD)
+        response = await client.post("/api/v1/provision", json=self.DYNAMO_PAYLOAD)
+        assert response.status_code == 409
 
     async def test_response_includes_request_id_header(self, client: AsyncClient) -> None:
         response = await client.post("/api/v1/provision", json=self.S3_PAYLOAD)
-        assert response.status_code == 202
+        assert response.status_code == 201
         assert "X-Request-ID" in response.headers
 
     async def test_custom_request_id_propagated(self, client: AsyncClient) -> None:
@@ -65,6 +78,10 @@ class TestProvision:
             headers={"X-Request-ID": custom_id},
         )
         assert response.headers["X-Request-ID"] == custom_id
+
+    async def test_s3_resource_name_uses_environment_prefix(self, client: AsyncClient) -> None:
+        response = await client.post("/api/v1/provision", json=self.S3_PAYLOAD)
+        assert response.json()["resource_arn"] == "arn:aws:s3:::dev-my-data-bucket"
 
     async def test_invalid_resource_type_rejected(self, client: AsyncClient) -> None:
         payload = {**self.S3_PAYLOAD, "config": {"resource_type": "ec2"}}
@@ -105,3 +122,15 @@ class TestProvision:
         }
         response = await client.post("/api/v1/provision", json=payload)
         assert response.status_code == 422
+
+    @pytest.mark.parametrize("billing_mode", ["PAY_PER_REQUEST", "PROVISIONED"])
+    async def test_dynamodb_billing_modes(
+        self, client: AsyncClient, billing_mode: str
+    ) -> None:
+        payload = {
+            **self.DYNAMO_PAYLOAD,
+            "name": f"table-{billing_mode.lower().replace('_', '-')}",
+            "config": {**self.DYNAMO_PAYLOAD["config"], "billing_mode": billing_mode},
+        }
+        response = await client.post("/api/v1/provision", json=payload)
+        assert response.status_code == 201
