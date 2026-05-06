@@ -71,7 +71,7 @@ data "aws_iam_policy_document" "task_provisioning" {
       "s3:CreateBucket",
       "s3:PutBucketVersioning",
       "s3:PutBucketTagging",
-      "s3:PutPublicAccessBlock",
+      "s3:PutBucketPublicAccessBlock",
     ]
     resources = ["arn:aws:s3:::*"]
   }
