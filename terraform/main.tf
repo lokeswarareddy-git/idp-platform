@@ -22,7 +22,7 @@ module "ecr" {
 # ── DynamoDB ───────────────────────────────────────────────────────────────────
 module "dynamodb" {
   source     = "./modules/dynamodb"
-  table_name = "idp-platform-events"
+  table_name = "idp-platform-dev"
   hash_key   = "id"
 
   attributes = [
