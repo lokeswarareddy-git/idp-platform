@@ -24,7 +24,7 @@ env:
 
 jobs:
 
-  # ── 1. TEST (CI) ────────────────────────────────────────────────────────────
+  # ── 1. TEST ─────────────────────────────────────────────────────────────────
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -43,20 +43,16 @@ jobs:
       - name: Run tests
         run: pytest --tb=short -q
 
-  # ── 2. DEPLOY (CD — ONLY MAIN) ──────────────────────────────────────────────
+  # ── 2. BUILD & DEPLOY (main only) ────────────────────────────────────────────
   deploy:
     name: Build & Deploy
     runs-on: ubuntu-latest
     needs: test
-    environment: production
-
-    # 🚨 CRITICAL FIX — prevents deploy during PR
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
       - uses: actions/checkout@v4
 
-      # Configure AWS credentials via OIDC
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -67,8 +63,7 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Capture current task definition BEFORE deploying (for rollback)
-      - name: Get current task definition
+      - name: Get current task definition (for rollback)
         id: prev
         run: |
           PREV=$(aws ecs describe-services \
@@ -78,15 +73,12 @@ jobs:
             --output text)
           echo "task_def=$PREV" >> $GITHUB_OUTPUT
 
-      # Resolve image tag
       - name: Resolve image tag
         id: meta
         run: |
           TAG=${{ github.event.inputs.image_tag || github.sha }}
           echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "Deploying image tag: $TAG"
 
-      # Build & push image to ECR
       - name: Build and push image to ECR
         id: build
         env:
@@ -101,7 +93,6 @@ jobs:
             .
           echo "image=$REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
-      # Download current task definition
       - name: Download task definition
         run: |
           aws ecs describe-task-definition \
@@ -109,7 +100,6 @@ jobs:
             --query taskDefinition \
             > task-def.json
 
-      # Render new task definition
       - name: Render new task definition
         id: render
         uses: aws-actions/amazon-ecs-render-task-definition@v1
@@ -118,8 +108,7 @@ jobs:
           container-name: ${{ env.CONTAINER_NAME }}
           image: ${{ steps.build.outputs.image }}
 
-      # Deploy to ECS
-      - name: Deploy to ECS (rolling update)
+      - name: Deploy to ECS
         id: deploy
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
@@ -128,28 +117,22 @@ jobs:
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
 
-      # Rollback if deployment fails
       - name: Rollback on failure
         if: failure() && steps.deploy.conclusion == 'failure'
         run: |
-          echo "⚠️ Deployment failed — rolling back to ${{ steps.prev.outputs.task_def }}"
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER }} \
             --service ${{ env.ECS_SERVICE }} \
             --task-definition ${{ steps.prev.outputs.task_def }} \
             --force-new-deployment
 
-      # Summary
       - name: Deployment summary
         if: always()
         run: |
-          STATUS="${{ job.status }}"
-          echo "## Deployment $STATUS" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Deployment ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
           echo "| **Image** | \`${{ steps.build.outputs.image }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Cluster** | \`${{ env.ECS_CLUSTER }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Service** | \`${{ env.ECS_SERVICE }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Triggered by** | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Actor** | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY

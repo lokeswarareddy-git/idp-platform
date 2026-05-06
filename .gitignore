@@ -8,6 +8,10 @@ venv/
 .terraform/
 *.tfstate
 *.tfstate.*
+*.tfplan
+tfplan
+*full-state*.json
+terraform/environments/**/import.sh
 
 # Docker
 *.tar
