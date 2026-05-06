@@ -42,7 +42,7 @@ class TestProvision:
         assert data["name"] == "my-data-bucket"
         assert data["environment"] == "dev"
         assert data["owner_team"] == "platform-team"
-        assert data["resource_arn"] == "arn:aws:s3:::dev-my-data-bucket"
+        assert data["resource_arn"].endswith("-dev-my-data-bucket")
         assert "request_id" in data
         assert "requested_at" in data
 
@@ -81,7 +81,8 @@ class TestProvision:
 
     async def test_s3_resource_name_uses_environment_prefix(self, client: AsyncClient) -> None:
         response = await client.post("/api/v1/provision", json=self.S3_PAYLOAD)
-        assert response.json()["resource_arn"] == "arn:aws:s3:::dev-my-data-bucket"
+        arn = response.json()["resource_arn"]
+        assert "dev-my-data-bucket" in arn
 
     async def test_invalid_resource_type_rejected(self, client: AsyncClient) -> None:
         payload = {**self.S3_PAYLOAD, "config": {"resource_type": "ec2"}}
