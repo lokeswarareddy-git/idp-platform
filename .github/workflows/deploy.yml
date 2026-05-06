@@ -63,16 +63,6 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Get current task definition (for rollback)
-        id: prev
-        run: |
-          PREV=$(aws ecs describe-services \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --services ${{ env.ECS_SERVICE }} \
-            --query 'services[0].taskDefinition' \
-            --output text)
-          echo "task_def=$PREV" >> $GITHUB_OUTPUT
-
       - name: Resolve image tag
         id: meta
         run: |
@@ -115,16 +105,8 @@ jobs:
           task-definition: ${{ steps.render.outputs.task-definition }}
           service: ${{ env.ECS_SERVICE }}
           cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
+          wait-for-service-stability: false
 
-      - name: Rollback on failure
-        if: failure() && steps.deploy.conclusion == 'failure'
-        run: |
-          aws ecs update-service \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --service ${{ env.ECS_SERVICE }} \
-            --task-definition ${{ steps.prev.outputs.task_def }} \
-            --force-new-deployment
 
       - name: Deployment summary
         if: always()
